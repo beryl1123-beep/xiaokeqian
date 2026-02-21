@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>每日能量抽签</title>
+    <style>
+        /* --- 1. 引入专属字体 --- */
+        @font-face {
+            font-family: 'HuiWen';
+            src: url('汇文明朝体.woff2') format('opentype');
+        }
+
+        /* --- 2. 全局与平铺背景 --- */
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            /* 【微信/Safari 核心优化 2】使用 100dvh 解决底部工具栏遮挡，并用 fixed 锁死背景防下拉拖拽回弹 */
+            height: 100vh;
+            height: 100dvh; 
+            position: fixed;
+            top: 0;
+            left: 0;
+            font-family: 'HuiWen', "KaiTi", serif;
+            overflow: hidden;
+            background-image: url('background.png');
+            background-repeat: repeat; 
+            /* 消除手机端点击元素时的灰色高亮块 */
+            -webkit-tap-highlight-color: transparent; 
+        }
+
+        /* --- 3. 页面 Logo --- */
+        .logo {
+            position: absolute;
+            top: 5vh;
+            left: 50%;
+            transform: translateX(-50%);
+            /* 【适配修复】不用 50vh，改用相对较小的自适应高度，并限制最大尺寸 */
+            height: 300vh; 
+            max-height: 300px;
+            width: auto;
+            z-index: 1;
+            pointer-events: none; /* 防止图片被长按保存 */
+        }
+
+        /* --- 4. 镜头舞台 --- */
+        .stage {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            perspective: 1200px; 
+        }
+
+        /* --- 5. 签筒及晃动提示 --- */
+        .tube-wrapper {
+            position: absolute;
+            top: 13%;
+            left: 50%;
+            transform: translate(-50%, 8vh);
+            z-index: 5;
+            cursor: pointer;
+            
+            /* 【适配修复】使用 min() 函数，保证签筒最大是 360px，但在小手机上只占屏幕宽度的 80% */
+            width: min(80vw, 360px); 
+            
+            transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .tube-wrapper.drawn {
+            transform: translate(-50%, 65vh);
+        }
+        
+        .tube-scale-layer {
+            width: 100%;
+            height: 100%;
+            transform-origin: bottom center;
+            transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .tube-wrapper.drawn .tube-scale-layer {
+            transform: scale(1.1); 
+        }
+
+        .tube-img {
+            width: 100%;
+            height: auto;
+            transform-origin: bottom center;
+            transition: transform 0.3s ease;
+            /* 【微信核心优化】禁止长按图片弹出保存菜单 */
+            -webkit-touch-callout: none; 
+            user-select: none;
+        }
+
+        @keyframes shake {
+            0% { transform: rotate(0deg); }
+            25% { transform: rotate(4deg); }
+            50% { transform: rotate(0deg); }
+            75% { transform: rotate(-4deg); }
+            100% { transform: rotate(0deg); }
+        }
+        .tube-wrapper:hover .tube-img {
+            animation: shake 0.6s infinite;
+        }
+
+        .tooltip {
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            background-color: rgba(60, 40, 30, 0.85);
+            color: #f6f7f9;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 16px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s, transform 0.3s;
+            transform: translate(-50%, 10px);
+            letter-spacing: 2px;
+            z-index: 1000; 
+        }
+        
+        /* 电脑端支持 hover，手机端我们稍后用 JS 控制提示文字 */
+        @media (hover: hover) {
+            .tube-wrapper:hover .tooltip {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        /* --- 6. 竹签容器与抽出动画 --- */
+        .stick-wrapper {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, 6vh);
+           
+            /* 【修改点1】初始状态的真实像素大小（小竹签） */
+            width: 80px;  
+            height: 400px; 
+            
+            z-index: 2; 
+            /* 所有的宽高变化都加入动画过渡 */
+            transition: all 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        
+        }
+
+        .stick-wrapper.drawn {
+            /* 抽出后位置 */
+            transform: translate(-50%, -45%);
+            
+            /* 【修改点2】抽出后的真实高清像素大小（大竹签） */
+            /* 如果你觉得不够大，可以直接把这里的数值改大！ */
+            width: 320px; 
+            height: 1600px; 
+            
+            z-index: 2; 
+
+        }
+
+        /* --- 7. 竹签 3D 翻转结构 --- */
+        .stick-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.8s ease-in-out;
+            transform-style: preserve-3d;
+        }
+        .stick-wrapper.flipped .stick-inner {
+            transform: rotateY(180deg);
+        }
+        .stick-front, .stick-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+        }
+        .stick-front img, .stick-back img {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; 
+            /* 【微信核心优化】禁止长按图片 */
+            -webkit-touch-callout: none;
+            pointer-events: none; 
+        }
+        .stick-back {
+            transform: rotateY(180deg);
+        }
+
+        /* --- 8. 文字排版与渐显动画 --- */
+        .stick-number {
+            font-size:18px;
+            color: #333;
+            writing-mode: vertical-rl;
+            letter-spacing: 5px;
+            position: absolute;
+            left: 50%;
+            top: 45%; 
+            transform: translateX(-50%);
+            
+            /* ⬇️ 【手动控制正面文字左右】 ⬇️ */
+            /* 如果偏右，就写负数（比如 -15px, -20px, -30px），数字越小越靠左 */
+            /* 如果偏左，就写正数（比如 10px, 20px） */
+            margin-left: -10px; 
+            /* ⬆️ --------------------- ⬆️ */
+
+            opacity: 0; 
+            transition: opacity 0.3s; 
+        }
+
+        .stick-wrapper.drawn .stick-number {
+            opacity: 1;
+            transition: opacity 0.8s ease 1.2s;
+        }
+
+        .fortune-text {
+            /* 同样使用 flex 修复法 */
+            position: absolute;
+            left: 0;
+            width: 100%;
+            top: 27%; /* 距离顶部的距离 */
+            display: flex;
+            justify-content: center;
+            
+            font-size: 18px;
+            color: #333;
+            writing-mode: vertical-rl;
+            letter-spacing: 2px;
+            line-height: 1.6;
+            height: 50%; /* 限制文字总高度 */
+            margin-left: -10px; 
+            align-items: center; /* 让文字垂直居中 */
+        }
+    </style>
+</head>
+<body>
+
+    <audio id="bg-music" src="bgm.mp3" loop preload="auto"></audio>
+
+    <img src="logo.png" class="logo" alt="能量抽签 Logo" onerror="this.style.display='none'">
+
+    <div class="stage">
+        <div class="stick-wrapper" id="stick-wrapper">
+            <div class="stick-inner">
+                <div class="stick-front">
+                    <img src="qian-front.png" alt="竹签正面">
+                    <div class="stick-number" id="stick-number">加载中</div>
+                </div>
+                <div class="stick-back">
+                    <img src="qian-back.png" alt="竹签背面">
+                    <div class="fortune-text" id="fortune-text">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tube-wrapper" id="tube-wrapper">
+            <div class="tooltip" id="tooltip">点击抽取今日「小可签」</div>
+            <div class="tube-scale-layer">
+                <img src="qiantong.png" class="tube-img" alt="签筒">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fortunes = [
+            { number: "第〇〇一签", text: "慢一点，也没关系。" },
+            { number: "第〇〇二签", text: "允许一切发生，保持平常心。" },
+            { number: "第〇〇三签", text: "深呼吸，感受当下的力量。" },
+            { number: "第〇〇四签", text: "动起来，哪怕只是五分钟的拉伸。" },
+            { number: "第〇〇五签", text: "不找借口，先开始再说。" },
+            { number: "第〇〇六签", text: "身体是神殿，今天记得好好喝水。" },
+            { number: "第〇〇七签", text: "不急着回应，给自己留点空白。" },
+            { number: "第〇〇八签", text: "试着开始，不必完全准备好。" },
+            { number: "第〇〇九签", text: "你已经做得够多了。" },
+            { number: "第〇一〇签", text: "把节奏调慢一点。" },
+            { number: "第〇一一签", text: "烦恼像浮云，看着它飘走。" },
+            { number: "第〇一二签", text: "今天只关注能改变的事情。" },
+            { number: "第〇一三签", text: "允许自己有个毫无作为的下午。" },
+            { number: "第〇一四签", text: "万物皆有裂痕，那是光照进来的地方。" },
+            { number: "第〇一五签", text: "把注意力放回呼吸上。" },
+            { number: "第〇一六签", text: "去散步吧，去感受风。" },
+            { number: "第〇一七签", text: "承认自己的不完美，并拥抱它。" },
+            { number: "第〇一八签", text: "你的存在本身就是一种美好。" },
+            { number: "第〇一九签", text: "先完成，再完美。" },
+            { number: "第〇二〇签", text: "答案在路上，不在焦虑里。" },
+            { number: "第〇二一签", text: "吃顿好饭，比什么都重要。" },
+            { number: "第〇二二签", text: "睡个好觉，是治愈一切的良药。" },
+            { number: "第〇二三签", text: "倾听身体的声音，它比头脑更诚实。" },
+            { number: "第〇二四签", text: "偶尔停下来，看看路边的树。" },
+            { number: "第〇二五签", text: "没有什么是非做不可的。" },
+            { number: "第〇二六签", text: "感谢昨天努力的自己。" },
+            { number: "第〇二七签", text: "一切烦恼，皆是菩提。" },
+            { number: "第〇二八签", text: "保持觉知，活在此时此地。" },
+            { number: "第〇二九签", text: "放弃那些消耗你的人和事。" },
+            { number: "第〇三〇签", text: "今天的任务就是开心。" },
+            { number: "第〇三一签", text: "柔软一点，像水一样。" },
+            { number: "第〇三二签", text: "不要为了未发生的事情担忧。" },
+            { number: "第〇三三签", text: "行动是打败焦虑的最好办法。" },
+            { number: "第〇三四签", text: "闭上眼睛，给自己一个拥抱。" },
+            { number: "第〇三五签", text: "相信直觉，它指引你前进。" },
+            { number: "第〇三六签", text: "慢下来，才能看清方向。" },
+            { number: "第〇三七签", text: "给生活做减法，给精神做加法。" },
+            { number: "第〇三八签", text: "顺其自然，该来的总会来。" },
+            { number: "第〇三九签", text: "不必讨好所有人。" },
+            { number: "第〇四〇签", text: "把心放空，才能装下新的可能。" },
+            { number: "第〇四一签", text: "今天适合整理房间，也整理心情。" },
+            { number: "第〇四二签", text: "原谅自己曾经犯过的错。" },
+            { number: "第〇四三签", text: "接纳当下的情绪，无论好坏。" },
+            { number: "第〇四四签", text: "你比你想象的更强大。" },
+            { number: "第〇四五签", text: "抬头看看天空，世界很广阔。" },
+            { number: "第〇四六签", text: "每天进步一点点就够了。" },
+            { number: "第〇四七签", text: "种一棵树最好的时间是十年前，其次是现在。" },
+            { number: "第〇四八签", text: "别找借口，现在就去做。" },
+            { number: "第〇四九签", text: "享受独处的时光。" },
+            { number: "第〇五〇签", text: "所有的相遇都有意义。" },
+            { number: "第〇五一签", text: "去感受阳光落在肩膀的温度。" },
+            { number: "第〇五二签", text: "情绪是一阵风，吹过就没有了。" },
+            { number: "第〇五三签", text: "对自己说一句：辛苦了。" },
+            { number: "第〇五四签", text: "允许自己今天状态不佳。" },
+            { number: "第〇五五签", text: "你的价值不需要别人来定义。" },
+            { number: "第〇五六签", text: "别害怕从头开始。" },
+            { number: "第〇五七签", text: "把脚步放稳，一步步走。" },
+            { number: "第〇五八签", text: "喝一杯温水，温暖你的胃。" },
+            { number: "第〇五九签", text: "专注眼前的事，就足够了。" },
+            { number: "第〇六〇签", text: "顺势而为，不强求。" },
+            { number: "第〇六一签", text: "今天试着不去抱怨。" },
+            { number: "第〇六二签", text: "微笑吧，即使没有理由。" },
+            { number: "第〇六三签", text: "失败只是暂时的偏航。" },
+            { number: "第〇六四签", text: "爱自己，是一生的课题。" },
+            { number: "第〇六五签", text: "给自己一点耐心，成长需要时间。" },
+            { number: "第〇六六签", text: "别让过去的阴影挡住今天的阳光。" },
+            { number: "第〇六七签", text: "放下执念，得大自在。" },
+            { number: "第〇六八签", text: "感受每一次心跳。" },
+            { number: "第〇六九签", text: "一切都是最好的安排。" },
+            { number: "第〇七〇签", text: "不要和别人比较，你只属于你自己。" },
+            { number: "第〇七一签", text: "允许别人做别人，允许自己做自己。" },
+            { number: "第〇七二签", text: "专注过程，放下对结果的执着。" },
+            { number: "第〇七三签", text: "每一天都是崭新的开始。" },
+            { number: "第〇七四签", text: "去见想见的人，做想做的事。" },
+            { number: "第〇七五签", text: "保持内心的宁静。" },
+            { number: "第〇七六签", text: "烦恼不过夜。" },
+            { number: "第〇七七签", text: "听一首喜欢的歌。" },
+            { number: "第〇七八签", text: "感受微风拂过脸庞。" },
+            { number: "第〇七九签", text: "你的每一个决定都是为了保护自己。" },
+            { number: "第〇八〇签", text: "不要过度消耗自己的能量。" },
+            { number: "第〇八一签", text: "今天适合吃点甜的。" },
+            { number: "第〇八二签", text: "赞美自己的一点小成就。" },
+            { number: "第〇八三签", text: "勇敢表达你的感受。" },
+            { number: "第〇八四签", text: "别把世界扛在自己肩上。" },
+            { number: "第〇八五签", text: "放下那些不属于你的责任。" },
+            { number: "第〇八六签", text: "让心归零。" },
+            { number: "第〇八七签", text: "活在当下，不畏将来。" },
+            { number: "第〇八八签", text: "去拉伸一下筋骨吧。" },
+            { number: "第〇八九签", text: "去做那个你想做却没有做的事。" },
+            { number: "第〇九〇签", text: "把今天过好，明天自然会好。" },
+            { number: "第〇九一签", text: "只要在动，慢一点也无妨。" },
+            { number: "第〇九二签", text: "倾听内心的声音。" },
+            { number: "第〇九三签", text: "不要让恐惧阻挡你的脚步。" },
+            { number: "第〇九四签", text: "享受当下的宁静。" },
+            { number: "第〇九五签", text: "对身边的人说声谢谢。" },
+            { number: "第〇九六签", text: "你有能力度过任何难关。" },
+            { number: "第〇九七签", text: "相信生命的可能性。" },
+            { number: "第〇九八签", text: "去感受泥土的气息。" },
+            { number: "第〇九九签", text: "在简单中发现快乐。" },
+            { number: "第一〇〇签", text: "你值得世间一切美好。" }
+        ];
+
+        function displayTodayFortune() {
+            const now = new Date();
+            const start = new Date(now.getFullYear(), 0, 0);
+            const diff = now - start;
+            const oneDay = 1000 * 60 * 60 * 24;
+            const dayOfYear = Math.floor(diff / oneDay);
+            
+            const index = (dayOfYear - 1) % fortunes.length; 
+            
+            if (fortunes[index]) {
+                document.getElementById('stick-number').innerText = fortunes[index].number;
+                document.getElementById('fortune-text').innerText = fortunes[index].text;
+            }
+        }
+        displayTodayFortune();
+
+        const tubeWrapper = document.getElementById('tube-wrapper');
+        const stickWrapper = document.getElementById('stick-wrapper');
+        const tooltip = document.getElementById('tooltip');
+
+        // 🎵 【新增部分】获取音频元素
+        const bgMusic = document.getElementById('bg-music');
+        let isMusicPlaying = false; 
+
+        
+        let isDrawn = false; 
+
+        tubeWrapper.addEventListener('click', () => {
+
+            // 🎵 【新增部分】在用户第一次点击签筒时，播放音乐
+            if (!isMusicPlaying) {
+                bgMusic.play().then(() => {
+                    isMusicPlaying = true;
+                }).catch(error => {
+                    console.log("浏览器限制了自动播放：", error);
+                });
+            }
+
+            if (!isDrawn) {
+                isDrawn = true;
+                stickWrapper.classList.add('drawn');
+                tubeWrapper.classList.add('drawn');
+                
+                // 手机上点击后，提示文字显式更改并显示
+                tooltip.style.opacity = '1';
+                tooltip.innerText = "放回「小可签」";
+                
+                // 3秒后自动隐藏提示，保持手机画面干净
+                setTimeout(() => {
+                    if(isDrawn) tooltip.style.opacity = '0';
+                }, 3000);
+
+            } else {
+                isDrawn = false;
+                stickWrapper.classList.remove('drawn');
+                tubeWrapper.classList.remove('drawn');
+                stickWrapper.classList.remove('flipped'); 
+                
+                tooltip.style.opacity = '1';
+                tooltip.innerText = "点击抽取今日「小可签」";
+                
+                setTimeout(() => {
+                    if(!isDrawn) tooltip.style.opacity = '0';
+                }, 3000);
+            }
+        });
+
+        stickWrapper.addEventListener('click', () => {
+            if (isDrawn) {
+                stickWrapper.classList.toggle('flipped');
+            }
+        });
+    </script>
+</body>
+</html>
